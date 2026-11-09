@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BROLLO</title>
+<!--
+  BROLLO, rascunho 1
+  Site de estudo no estilo ORYZO: uma lata 3D (Three.js) que atravessa
+  o site inteiro e muda de pose conforme você rola a página.
+
+  Como o site funciona, em uma frase:
+  existe UM canvas WebGL fixo atrás de tudo, o HTML com os textos rola
+  por cima dele, e o JavaScript lê o scroll pra decidir onde a lata fica.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ===== CORES E VARIÁVEIS ===== */
+  :root{
+    --aqua:#5ED1D1;
+    --creme:#F1FBFA;
+    --fundo:#061113;
+    --logo-escala:1;   /* o JS muda isso enquanto você rola o hero */
+    --logo-alpha:1;
+    --logo-header:0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--fundo);
+    color:var(--creme);
+    font-family:Inter,system-ui,sans-serif;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* O canvas 3D fica FIXO na tela, por cima do título gigante e por baixo dos textos.
+     pointer-events:none deixa os cliques passarem para o HTML. */
+  #cena{position:fixed;inset:0;width:100vw;height:100vh;z-index:1;pointer-events:none}
+
+  /* ===== MENU ===== */
+  header{
+    position:fixed;top:0;left:0;right:0;z-index:10;
+    display:flex;justify-content:space-between;align-items:center;
+    padding:22px 32px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  }
+  header .marca{font-family:Anton;font-size:24px;letter-spacing:.05em;opacity:var(--logo-header);color:var(--aqua)}
+  nav a{color:inherit;text-decoration:none;margin-left:26px;opacity:.6;transition:opacity .3s}
+  nav a.ativo{opacity:1;border-bottom:1px dotted var(--aqua);padding-bottom:3px}
+
+  section{position:relative}
+
+  /* "fixo" = a parte da seção que gruda na tela enquanto a seção (que é mais alta) passa.
+     É o truque que dá a sensação de cena de filme. z-index 2 = acima do canvas. */
+  .fixo{position:sticky;top:0;height:100vh;overflow:hidden;z-index:2}
+
+  /* ===== ANIMAÇÃO DE REVELAR TEXTO =====
+     Cada linha fica dentro de uma "janela" com overflow:hidden.
+     O texto começa empurrado pra baixo (fora da janela) e sobe quando a seção ganha a classe .in */
+  .linha{display:block;overflow:hidden;padding-bottom:.06em}
+  .linha>span{display:block;transform:translateY(110%);transition:transform 1.1s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0s)}
+  .in .linha>span{transform:none}
+  .some{opacity:0;transition:opacity 1s ease var(--d,0s)}
+  .in .some{opacity:1}
+
+  /* ===== 1. HERO ===== */
+  #hero{height:100vh}
+  #hero .titulo{
+    position:absolute;z-index:0;left:0;right:0;top:50%;
+    transform:translateY(-50%) scale(var(--logo-escala));
+    text-align:center;font-family:Anton;font-size:clamp(110px,27vw,430px);line-height:.8;
+    color:var(--aqua);opacity:var(--logo-alpha);user-select:none;
+  }
+  #hero .conteudo{position:absolute;inset:0;z-index:2}
+  .tagline{position:absolute;top:80px;left:0;right:0;text-align:center;font-size:12px;font-weight:700;letter-spacing:.2em}
+  .cartao{
+    position:absolute;left:32px;bottom:32px;width:250px;padding:18px;
+    background:rgba(94,209,209,.08);border:1px solid rgba(94,209,209,.25);backdrop-filter:blur(10px);
+    font-size:13px;line-height:1.5;
+  }
+  .cartao b{display:block;font-size:18px;text-transform:uppercase;line-height:1.15;margin-bottom:14px}
+  .cartao hr{border:0;border-top:1px dotted rgba(241,251,250,.5);margin:12px 0}
+  .lado{position:absolute;right:40px;top:50%;transform:translateY(-50%);width:300px;font-size:19px;line-height:1.4}
+  .rolar{position:absolute;bottom:28px;left:0;right:0;text-align:center;font-size:11px;letter-spacing:.2em;font-weight:700;opacity:.7}
+  .rolar i{display:block;margin:0 auto 8px;width:1px;height:34px;background:var(--creme);animation:desce 1.8s ease-in-out infinite;transform-origin:top}
+  @keyframes desce{0%{transform:scaleY(0)}50%{transform:scaleY(1);transform-origin:top}51%{transform-origin:bottom}100%{transform:scaleY(0);transform-origin:bottom}}
+
+  /* ===== 2. GELADA ===== */
+  #gelada{height:260vh}
+  #gelada .conteudo{position:absolute;left:7vw;top:50%;transform:translateY(-50%);max-width:480px}
+  .mini{font-size:12px;letter-spacing:.2em;font-weight:700;color:var(--aqua);margin-bottom:18px;text-transform:uppercase}
+  h2{font-family:Anton;font-weight:400;font-size:clamp(54px,7vw,104px);line-height:.95;text-transform:uppercase}
+  .texto{font-size:17px;line-height:1.55;opacity:.8;margin-top:24px;max-width:400px}
+  .numeros{display:flex;gap:36px;margin-top:34px}
+  .numeros div{border-top:1px solid rgba(94,209,209,.4);padding-top:10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.8}
+  .numeros strong{display:block;font-family:Anton;font-weight:400;font-size:40px;color:var(--aqua);letter-spacing:0;opacity:1}
+
+  /* ===== 3. BOLHAS ===== */
+  #bolhas{height:260vh}
+  #bolhas .topo{position:absolute;top:12vh;left:0;right:0;text-align:center}
+  #bolhas .baixo{position:absolute;bottom:10vh;left:0;right:0;text-align:center}
+  #bolhas h2{font-size:clamp(60px,10vw,160px)}
+  #bolhas .texto{margin:18px auto 0}
+
+  /* ===== 4. PRODUTO ===== */
+  #produto{height:100vh}
+  #produto .topo{position:absolute;top:13vh;left:0;right:0;text-align:center}
+  #produto h2{font-size:clamp(70px,12vw,190px);color:var(--aqua);line-height:.85}
+  .sabores{display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap}
+  .sabores button{
+    font:700 12px Inter;letter-spacing:.12em;text-transform:uppercase;color:var(--creme);cursor:pointer;
+    background:rgba(241,251,250,.06);border:1px solid rgba(241,251,250,.2);border-radius:99px;padding:12px 22px;
+    transition:all .3s;
+  }
+  .sabores button:hover{border-color:var(--aqua)}
+  .sabores button.ativo{background:var(--aqua);color:#062022;border-color:var(--aqua)}
+  .desc{position:absolute;left:32px;bottom:70px;width:300px}
+  .desc h3{font-family:Anton;font-weight:400;font-size:34px;text-transform:uppercase;color:var(--aqua)}
+  .desc p{font-size:14px;line-height:1.5;opacity:.75;margin-top:8px}
+  .specs{position:absolute;right:32px;bottom:70px;list-style:none;font-size:14px;line-height:2.1}
+  .specs li::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;border:1px solid var(--aqua);margin-right:10px}
+  footer{position:absolute;bottom:18px;left:0;right:0;text-align:center;font-size:10px;letter-spacing:.14em;opacity:.45;text-transform:uppercase}
+
+  /* ===== CELULAR ===== */
+  @media (max-width:760px){
+    header{padding:16px 18px} nav a{margin-left:12px;font-size:10px}
+    .lado,.specs{display:none}
+    .cartao{left:16px;right:16px;width:auto;bottom:80px}
+    #gelada .conteudo{left:16px;right:16px;top:auto;bottom:6vh;transform:none}
+    .numeros{gap:18px} .numeros strong{font-size:30px}
+    .desc{left:16px;right:16px;width:auto;bottom:50px}
+  }
+</style>
+
+<!-- Import map: diz ao navegador onde buscar o Three.js quando o código fizer import 'three' -->
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+
+<body>
+<canvas id="cena"></canvas>
+
+<header>
+  <div class="marca">BROLLO</div>
+  <nav>
+    <a href="#hero" data-sec="hero">Início</a>
+    <a href="#gelada" data-sec="gelada">Gelada</a>
+    <a href="#bolhas" data-sec="bolhas">Bolhas</a>
+    <a href="#produto" data-sec="produto">Produto</a>
+  </nav>
+</header>
+
+<!-- 1. HERO: o título fica ATRÁS do canvas, então a lata passa na frente dele -->
+<section id="hero" class="in">
+  <div class="titulo">BROLLO</div>
+  <div class="conteudo">
+    <div class="tagline"><span class="linha"><span>Feito pra gelar. Construído pra brindar.</span></span></div>
+    <div class="cartao some" style="--d:.4s">
+      <b>Desenhado por Brollo, um estudante com acesso a Three.js.</b>
+      <hr>
+      O refrigerante mais desnecessariamente sofisticado do mundo.
+    </div>
+    <div class="lado">
+      <span class="linha"><span style="--d:.2s">Pensado pra refrescar, borbulhar</span></span>
+      <span class="linha"><span style="--d:.3s">e brilhar do jeito certo. Brollo faz</span></span>
+      <span class="linha"><span style="--d:.4s">o gole mais simples parecer especial.</span></span>
+    </div>
+    <div class="rolar some" style="--d:.8s"><i></i>Role pra descer</div>
+  </div>
+</section>
+
+<!-- 2. GELADA: seção alta (260vh) com conteúdo grudado na tela -->
+<section id="gelada">
+  <div class="fixo">
+    <div class="conteudo">
+      <div class="mini some">Tecnologia de condensação</div>
+      <h2>
+        <span class="linha"><span>Gelada</span></span>
+        <span class="linha"><span style="--d:.1s">até no</span></span>
+        <span class="linha"><span style="--d:.2s">nome.</span></span>
+      </h2>
+      <p class="texto some" style="--d:.3s">Cada gotinha na lata foi calculada em tempo real pelo seu navegador. Ninguém pediu isso. Fizemos mesmo assim.</p>
+      <div class="numeros some" style="--d:.45s">
+        <div><strong>4°C</strong>temperatura ideal</div>
+        <div><strong>300</strong>gotas em 3D</div>
+        <div><strong>60</strong>quadros por segundo</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. BOLHAS -->
+<section id="bolhas">
+  <div class="fixo">
+    <div class="topo">
+      <div class="mini some">Gás de precisão</div>
+      <h2><span class="linha"><span>Bolhas sob medida.</span></span></h2>
+    </div>
+    <div class="baixo">
+      <p class="texto some" style="--d:.3s">Cada bolha foi posicionada por um algoritmo avançado chamado <b>Math.random()</b>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4. PRODUTO -->
+<section id="produto">
+  <div class="fixo">
+    <div class="topo">
+      <div class="mini some">Escolha a sua</div>
+      <h2><span class="linha"><span>BROLLO</span></span></h2>
+      <div class="sabores some" style="--d:.3s">
+        <button data-sabor="original" class="ativo">Original</button>
+        <button data-sabor="zero">Zero</button>
+        <button data-sabor="brisa">Brisa</button>
+      </div>
+    </div>
+    <div class="desc some" style="--d:.4s">
+      <h3 id="sabor-nome">Original</h3>
+      <p id="sabor-desc">O aqua clássico. Doce na medida, gelado na medida, dramático além da medida.</p>
+    </div>
+    <ul class="specs some" style="--d:.5s">
+      <li>Lata de 350 ml</li>
+      <li>Renderizada em WebGL</li>
+      <li>Zero calorias de JavaScript</li>
+    </ul>
+    <footer>Brollo é uma marca fictícia, criada como projeto de estudo. Nenhuma lata foi vendida.</footer>
+  </div>
+</section>
+
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* =========================================================
+   CONFIGURAÇÃO: troque aqui o nome e as cores
+   ========================================================= */
+const MARCA = 'BROLLO';
+const SABORES = {
+  original:{ nome:'Original', fundo:'#5ED1D1', texto:'#062A2C', detalhe:'#F1FBFA',
+             desc:'O aqua clássico. Doce na medida, gelado na medida, dramático além da medida.' },
+  zero:    { nome:'Zero',     fundo:'#0B2326', texto:'#5ED1D1', detalhe:'#5ED1D1',
+             desc:'Zero açúcar, zero culpa, zero motivo pra existir. Mesmo brilho.' },
+  brisa:   { nome:'Brisa',    fundo:'#EAFBFA', texto:'#0E8F8F', detalhe:'#5ED1D1',
+             desc:'A versão clarinha. Tem gosto de ventilador ligado num dia de verão.' },
+};
+
+/* =========================================================
+   1. RENDERER, CENA E CÂMERA (o "básico" de todo projeto Three.js)
+   ========================================================= */
+const canvas = document.getElementById('cena');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true }); // alpha = fundo transparente, a cor vem do CSS
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));   // limita em 2x pra não pesar em tela retina
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;      // deixa as luzes com cara de foto
+renderer.toneMappingExposure = 1.05;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 0, 6);
+
+// Ambiente de reflexo: um "quarto" virtual que o metal da lata reflete.
+// Sem isso, metal fica preto. É o segredo número 1 pra 3D parecer real.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+// Luzes extras: uma principal branca e uma de contorno aqua (rim light)
+const luzChave = new THREE.DirectionalLight('#ffffff', 1.6);
+luzChave.position.set(3, 4, 5);
+scene.add(luzChave);
+const luzContorno = new THREE.DirectionalLight('#5ED1D1', 3);
+luzContorno.position.set(-4, 1, -3);
+scene.add(luzContorno);
+
+/* =========================================================
+   2. RÓTULO: desenhado num <canvas> 2D e usado como textura
+   ========================================================= */
+function desenharRotulo(s){
+  const c = document.createElement('canvas');
+  c.width = 2048; c.height = 1024;
+  const g = c.getContext('2d');
+
+  g.fillStyle = s.fundo;
+  g.fillRect(0, 0, c.width, c.height);
+
+  // onda na parte de baixo
+  g.globalAlpha = .28;
+  g.fillStyle = s.detalhe;
+  g.beginPath(); g.moveTo(0, 690);
+  for (let x = 0; x <= 2048; x += 16) g.lineTo(x, 690 + Math.sin(x / 2048 * Math.PI * 6) * 55);
+  g.lineTo(2048, 1024); g.lineTo(0, 1024); g.fill();
+  g.globalAlpha = 1;
+
+  // faixas finas em cima e embaixo
+  g.fillStyle = s.texto;
+  g.fillRect(0, 70, 2048, 8);
+  g.fillRect(0, 946, 2048, 8);
+
+  // nome gigante na vertical, centralizado em x=1024 (que vai ficar de frente pra câmera)
+  g.save();
+  g.translate(1024, 512);
+  g.rotate(-Math.PI / 2);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  let tamanho = 330;
+  g.font = `${tamanho}px Anton`;
+  const largura = g.measureText(MARCA).width;
+  if (largura > 820) { tamanho *= 820 / largura; g.font = `${tamanho}px Anton`; }
+  g.fillText(MARCA, 0, 12);
+  g.restore();
+
+  // textinhos laterais
+  g.font = '700 38px Inter';
+  g.textAlign = 'center';
+  g.fillText('REFRIGERANTE DE AQUA', 1024 + 430, 170);
+  g.fillText('350 ml', 1024 - 430, 170);
+  g.font = '500 30px Inter';
+  g.fillText('GELADA DESDE SEMPRE', 1024 + 430, 880);
+  g.fillText('SABOR ' + s.nome.toUpperCase(), 1024 - 430, 880);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); // deixa o texto nítido de ladinho
+  return tex;
+}
+
+/* =========================================================
+   3. A LATA: corpo (cilindro) + topo e fundo (LatheGeometry)
+   LatheGeometry = você desenha um perfil 2D e o Three "gira" ele em volta do eixo Y,
+   igual a um torno de oleiro.
+   ========================================================= */
+const R = 0.66, H = 1.8;            // raio e altura do corpo
+const lata = new THREE.Group();     // grupo = tudo que se move junto
+scene.add(lata);
+
+const matRotulo = new THREE.MeshPhysicalMaterial({
+  map: desenharRotulo(SABORES.original),
+  metalness: .55, roughness: .28,
+  clearcoat: 1, clearcoatRoughness: .15,  // camada de verniz brilhante por cima
+});
+const matMetal = new THREE.MeshStandardMaterial({
+  color: '#d7e0e2', metalness: 1, roughness: .22, side: THREE.DoubleSide,
+});
+
+// thetaStart = PI faz o meio da textura (x=1024) ficar virado pra frente (+z)
+const corpo = new THREE.Mesh(new THREE.CylinderGeometry(R, R, H, 128, 1, true, Math.PI), matRotulo);
+lata.add(corpo);
+
+const v = (pts) => pts.map(([r, y]) => new THREE.Vector2(r, y));
+const topoGeo = new THREE.LatheGeometry(v([
+  [R, 0], [R - .01, .05], [R - .09, .17], [.56, .22], [.565, .245], [.55, .268], [.52, .258], [.5, .215]
+]), 128);
+topoGeo.translate(0, H / 2, 0);
+lata.add(new THREE.Mesh(topoGeo, matMetal));
+
+const tampa = new THREE.Mesh(new THREE.CircleGeometry(.5, 64), matMetal);
+tampa.rotation.x = -Math.PI / 2;
+tampa.position.y = H / 2 + .215;
+lata.add(tampa);
+
+const lacre = new THREE.Mesh(new THREE.BoxGeometry(.3, .02, .17), matMetal);
+lacre.position.set(0, H / 2 + .228, .17);
+lata.add(lacre);
+
+const fundoGeo = new THREE.LatheGeometry(v([
+  [0, -.13], [.38, -.13], [.5, -.17], [.57, -.15], [R - .03, -.07], [R, 0]
+]), 128);
+fundoGeo.translate(0, -H / 2, 0);
+lata.add(new THREE.Mesh(fundoGeo, matMetal));
+
+/* =========================================================
+   4. GOTAS DE CONDENSAÇÃO: InstancedMesh
+   InstancedMesh desenha 300 gotas com UMA chamada à placa de vídeo.
+   300 Meshes separados seriam 300 chamadas. É o truque que o ORYZO usa muito.
+   ========================================================= */
+const N_GOTAS = 300;
+const gotas = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(1, 12, 8),
+  new THREE.MeshPhysicalMaterial({ color:'#ffffff', roughness:.02, metalness:0, transparent:true, opacity:.55, clearcoat:1, envMapIntensity:2.5 }),
+  N_GOTAS
+);
+const dadosGotas = [];
+for (let i = 0; i < N_GOTAS; i++) {
+  dadosGotas.push({
+    ang: Math.random() * Math.PI * 2,
+    y: (Math.random() - .5) * H * .95,
+    tam: .008 + Math.random() ** 3 * .035,     // ** 3 = muitas gotas pequenas, poucas grandes
+    vel: Math.random() < .12 ? .05 + Math.random() * .15 : 0, // só algumas escorrem
+  });
+}
+lata.add(gotas);
+const aux = new THREE.Object3D(); // objeto "rascunho" pra montar a matriz de cada instância
+
+function atualizarGotas(dt, quantidade){
+  for (let i = 0; i < N_GOTAS; i++) {
+    const d = dadosGotas[i];
+    d.y -= d.vel * dt * quantidade;
+    if (d.y < -H / 2 * .95) d.y = H / 2 * .95;
+    const s = d.tam * quantidade;
+    aux.position.set(Math.sin(d.ang) * (R + .002), d.y, Math.cos(d.ang) * (R + .002));
+    aux.rotation.set(0, d.ang, 0);       // vira a gota pra "deitar" na superfície
+    aux.scale.set(s, s * 1.3, s * .45);  // achatada, como gota de verdade
+    aux.updateMatrix();
+    gotas.setMatrixAt(i, aux.matrix);
+  }
+  gotas.instanceMatrix.needsUpdate = true;
+}
+
+/* =========================================================
+   5. BOLHAS: InstancedMesh + SHADER próprio (efeito fresnel)
+   Fresnel = a borda da bolha brilha e o meio fica transparente.
+   Aqui é a sua primeira porta de entrada para GLSL.
+   ========================================================= */
+const N_BOLHAS = 380;
+const matBolha = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false,
+  uniforms: { uCor: { value: new THREE.Color('#5ED1D1') }, uAlpha: { value: 0 } },
+  vertexShader: /* glsl */`
+    varying vec3 vNormal;
+    varying vec3 vVista;
+    void main(){
+      vec4 pos = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      vNormal = normalize(normalMatrix * mat3(instanceMatrix) * normal);
+      vVista = normalize(-pos.xyz);
+      gl_Position = projectionMatrix * pos;
+    }`,
+  fragmentShader: /* glsl */`
+    uniform vec3 uCor;
+    uniform float uAlpha;
+    varying vec3 vNormal;
+    varying vec3 vVista;
+    void main(){
+      // 0 no centro da bolha, 1 na borda
+      float borda = pow(1.0 - abs(dot(vNormal, vVista)), 2.2);
+      // pontinho de brilho (reflexo da luz) no canto de cima
+      float brilho = smoothstep(.93, 1.0, dot(vNormal, normalize(vec3(-.4, .6, .7))));
+      vec3 cor = mix(uCor * .5, vec3(1.0), borda) + brilho;
+      gl_FragColor = vec4(cor, (.05 + borda * .85 + brilho) * uAlpha);
+    }`,
+});
+const bolhas = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 20, 14), matBolha, N_BOLHAS);
+const dadosBolhas = [];
+for (let i = 0; i < N_BOLHAS; i++) {
+  dadosBolhas.push({
+    x: (Math.random() - .5) * 7, y: (Math.random() - .5) * 7, z: -2 + Math.random() * 4.2,
+    tam: .015 + Math.random() ** 2 * .1, vel: .3 + Math.random() * .9, fase: Math.random() * 10,
+  });
+}
+scene.add(bolhas);
+
+function atualizarBolhas(dt, t, quantidade){
+  for (let i = 0; i < N_BOLHAS; i++) {
+    const b = dadosBolhas[i];
+    b.y += b.vel * dt * (.25 + quantidade);
+    if (b.y > 3.6) b.y = -3.6;   // saiu por cima? volta por baixo
+    aux.position.set(b.x + Math.sin(t * 2 + b.fase) * .05, b.y, b.z);
+    aux.rotation.set(0, 0, 0);
+    aux.scale.setScalar(b.tam);
+    aux.updateMatrix();
+    bolhas.setMatrixAt(i, aux.matrix);
+  }
+  bolhas.instanceMatrix.needsUpdate = true;
+  matBolha.uniforms.uAlpha.value = quantidade;
+}
+
+/* =========================================================
+   6. POSES: onde a lata fica em cada seção (keyframes)
+   O JS descobre entre quais duas poses você está e mistura as duas.
+   ========================================================= */
+const POSES = [
+  { sec:'hero',    lata:{ x:0,    y:-.05, z:0,  rx:.12, rz:.12,  s:1   }, camZ:6.2, gotas:0,   bolhas:0,   giro:1,   fundo:'#061113' },
+  { sec:'gelada',  lata:{ x:1.25, y:0,    z:0,  rx:.22, rz:-.26, s:1.05}, camZ:5.6, gotas:1,   bolhas:0,   giro:.35, fundo:'#071b1e' },
+  { sec:'bolhas',  lata:{ x:0,    y:.15,  z:.5, rx:.55, rz:.1,   s:1   }, camZ:3.8, gotas:.35, bolhas:1,   giro:.6,  fundo:'#0a3436' },
+  { sec:'produto', lata:{ x:0,    y:-.42, z:0,  rx:.16, rz:0,    s:.92 }, camZ:6,   gotas:.2,  bolhas:.12, giro:.5,  fundo:'#061113' },
+];
+let marcos = []; // posição de cada pose no scroll, de 0 a 1
+
+function calcularMarcos(){
+  const max = document.documentElement.scrollHeight - innerHeight;
+  marcos = POSES.map(p => {
+    const el = document.getElementById(p.sec);
+    const meio = el.offsetTop + (el.offsetHeight - innerHeight) * .5;
+    return Math.min(1, Math.max(0, meio / max));
+  });
+}
+
+const suave = t => t * t * (3 - 2 * t);           // smoothstep: começa e termina devagar
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function poseNoScroll(p){
+  let i = 0;
+  while (i < marcos.length - 2 && p > marcos[i + 1]) i++;
+  const a = POSES[i], b = POSES[i + 1];
+  const t = suave(Math.min(1, Math.max(0, (p - marcos[i]) / (marcos[i + 1] - marcos[i] || 1))));
+  const r = { lata:{} };
+  for (const k in a.lata) r.lata[k] = lerp(a.lata[k], b.lata[k], t);
+  for (const k of ['camZ', 'gotas', 'bolhas', 'giro']) r[k] = lerp(a[k], b[k], t);
+  r.fundo = new THREE.Color(a.fundo).lerp(new THREE.Color(b.fundo), t);
+  return r;
+}
+
+/* =========================================================
+   7. INTERAÇÕES: mouse, scroll, botões de sabor
+   ========================================================= */
+const mouse = { x:0, y:0 };
+addEventListener('pointermove', e => {
+  mouse.x = e.clientX / innerWidth * 2 - 1;
+  mouse.y = e.clientY / innerHeight * 2 - 1;
+});
+
+let giroExtra = 0;   // empurrão de rotação quando troca de sabor ou rola rápido
+let ultimoScroll = scrollY;
+
+document.querySelectorAll('.sabores button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const s = SABORES[btn.dataset.sabor];
+    document.querySelectorAll('.sabores button').forEach(b => b.classList.toggle('ativo', b === btn));
+    matRotulo.map.dispose();
+    matRotulo.map = desenharRotulo(s);
+    document.getElementById('sabor-nome').textContent = s.nome;
+    document.getElementById('sabor-desc').textContent = s.desc;
+    giroExtra += Math.PI * 2;  // a lata dá uma volta inteira ao trocar
+  });
+});
+
+const secoes = [...document.querySelectorAll('section')];
+const links = [...document.querySelectorAll('nav a')];
+const raiz = document.documentElement.style;
+
+function atualizarHTML(){
+  // hero: título encolhe e some, logo do menu aparece
+  const h = Math.min(1, scrollY / innerHeight);
+  raiz.setProperty('--logo-escala', 1 - h * .35);
+  raiz.setProperty('--logo-alpha', Math.max(0, 1 - h * 1.4));
+  raiz.setProperty('--logo-header', Math.min(1, Math.max(0, (h - .5) * 3)));
+
+  // cada seção ganha .in quando está "no palco", e o link do menu fica ativo
+  const meioTela = scrollY + innerHeight * .5;
+  secoes.forEach(sec => {
+    const ini = sec.offsetTop, fim = ini + sec.offsetHeight;
+    const local = (scrollY - ini) / Math.max(1, sec.offsetHeight - innerHeight);
+    const visivel = sec.id === 'hero' ? scrollY < innerHeight * .5
+                  : sec.id === 'produto' ? scrollY > ini - innerHeight * .4
+                  : local > -.25 && local < 1.05;
+    sec.classList.toggle('in', visivel);
+    if (meioTela >= ini && meioTela < fim) links.forEach(a => a.classList.toggle('ativo', a.dataset.sec === sec.id));
+  });
+}
+
+/* =========================================================
+   8. LOOP DE ANIMAÇÃO: roda ~60 vezes por segundo
+   ========================================================= */
+const atual = { x:0, y:0, z:0, rx:0, rz:0, s:1, camZ:6.2, gotas:0, bolhas:0, giro:1 }; // valores "suavizados"
+let rotY = 0;
+const relogio = new THREE.Clock();
+const celular = () => innerWidth < 760;
+
+function animar(){
+  const dt = Math.min(relogio.getDelta(), .05);
+  const t = relogio.elapsedTime;
+
+  const max = document.documentElement.scrollHeight - innerHeight;
+  const p = max > 0 ? scrollY / max : 0;
+  const alvo = poseNoScroll(p);
+
+  // no celular a lata não vai tanto pro lado e a câmera fica mais longe
+  if (celular()) { alvo.lata.x *= .2; alvo.camZ += 2.2; }
+
+  // SUAVIZAÇÃO: em vez de pular direto pro alvo, anda uma fração do caminho a cada quadro.
+  // É isso que dá a sensação "manteiga" de sites como o ORYZO.
+  const k = 1 - Math.exp(-dt * 5);
+  for (const c of ['x', 'y', 'z', 'rx', 'rz', 's']) atual[c] = lerp(atual[c], alvo.lata[c], k);
+  for (const c of ['camZ', 'gotas', 'bolhas', 'giro']) atual[c] = lerp(atual[c], alvo[c], k);
+
+  // velocidade do scroll também gira a lata
+  const vScroll = scrollY - ultimoScroll; ultimoScroll = scrollY;
+  const empurrao = giroExtra * Math.min(1, dt * 4);
+  giroExtra -= empurrao;
+  rotY += dt * .5 * atual.giro + vScroll * .002 + empurrao;
+
+  lata.position.set(atual.x, atual.y + Math.sin(t * 1.2) * .04, atual.z); // + flutuação leve
+  lata.rotation.set(atual.rx + mouse.y * .12, rotY, atual.rz - mouse.x * .1);
+  lata.scale.setScalar(atual.s);
+
+  camera.position.z = atual.camZ;
+  camera.position.x = lerp(camera.position.x, mouse.x * .15, k);
+  camera.lookAt(0, 0, 0);
+
+  atualizarGotas(dt, atual.gotas);
+  atualizarBolhas(dt, t, atual.bolhas);
+  document.body.style.background = '#' + alvo.fundo.getHexString();
+
+  atualizarHTML();
+  renderer.render(scene, camera);
+  requestAnimationFrame(animar);
+}
+
+function redimensionar(){
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  calcularMarcos();
+}
+addEventListener('resize', redimensionar);
+
+// Espera a fonte Anton carregar antes de desenhar o rótulo (senão sai com fonte padrão)
+document.fonts.load('330px Anton').then(() => {
+  matRotulo.map.dispose();
+  matRotulo.map = desenharRotulo(SABORES.original);
+});
+
+calcularMarcos();
+animar();
+</script>
+</body>
+</html>
